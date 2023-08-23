@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/users', async (req, res) => {
-  const data = await mongo.getData({ username: 1 })
+  const data = await mongo.getData({}, { username: 1 })
   res.json(data)
 });
 
@@ -27,6 +27,11 @@ app.post('/api/users', async (req, res) => {
     username: req.body.username
   })
 
+  if (!data || !data.insertedId) {
+    res.json({ error: 'error when create user' });
+    return;
+  }
+
   res.json({
     _id: data.insertedId,
     username: req.body.username
@@ -35,36 +40,43 @@ app.post('/api/users', async (req, res) => {
 
 app.get('/api/users/:_id/logs', async (req, res) => {
   if (!req.params._id) {
-    res.json('The user not found');
+    res.json('Param not found');
     return;
   }
 
-  const filter = { _id: mongo.toObjectId(req.params._id) };
-  const obj = { log: 1 };
+  const id = mongo.toObjectId(req.params._id);
+
+  if (!id) {
+    res.json('The id invalid');
+    return;
+  }
+
+  const filter = { _id: id };
+  const obj = { exercise: 1 };
 
   if (req.query.from) {
-    filter['log.date'] = { $gte: req.query.from };
+    filter['exercise.date'] = { $gte: new Date(req.query.from).toDateString() };
   }
 
   if (req.query.to) {
-    filter['log.date'] = { $lte: req.query.to };
+    filter['exercise.date'] = { $lte: new Date(req.query.to).toDateString() };
   }
 
   if (req.query.limit && !isNaN(req.query.limit)) {
-    obj.log = { $slice: parseInt(req.query.limit) };
+    obj.exercise = { $slice: parseInt(req.query.limit) };
   }
 
   const data = await mongo.findData(filter, obj);
 
   res.json({
-    count: data?.log ? data.log.length : 0,
-    log: data?.log ?? []
+    count: data?.exercise ? data.exercise.length : 0,
+    log: data?.exercise ?? []
   })
 });
 
 app.post('/api/users/:_id/exercises', async (req, res) => {
   if (!req.params._id) {
-    res.json('The user not found');
+    res.json('Param not found');
     return;
   }
 
@@ -78,24 +90,34 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
     return;
   }
 
-  if (!req.body.date || !req.body.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+  if (req.body.date && !req.body.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
     res.json('The date data invalid');
     return;
   }
 
-  const logs = {
+  const date = req.body?.date ? new Date(req.body.date) : new Date();
+
+  const exercises = {
     description: req.body.description,
     duration: parseInt(req.body.duration),
-    date: req.body.date
+    date: date.toDateString()
   }
 
-  const data = await mongo.updateData({
-    _id: mongo.toObjectId(req.params._id)
-  }, {
-    $addToSet: { log: logs }
+  const id = mongo.toObjectId(req.params._id);
+
+  if (!id) {
+    res.json('The id invalid');
+    return;
+  }
+
+  await mongo.updateData({ _id: id }, {
+    $addToSet: { exercise: exercises }
   });
 
-  res.json(data)
+  const data = await mongo.getData({ _id: id });
+  exercises._id = data[0]._id;
+  exercises.username = data[0].username;
+  res.json(exercises);
 });
 
 const listener = app.listen(process.env.PORT || 3000, () => {
